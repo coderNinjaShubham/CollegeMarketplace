@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Store, Code2 } from 'lucide-react';
+import { Store, Code as Code2 } from 'lucide-react';
 import { CATEGORIES } from '@/lib/constants';
 
 export function Footer() {

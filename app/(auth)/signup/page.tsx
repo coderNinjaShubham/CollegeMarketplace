@@ -3,15 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Mail,
-  Lock,
-  User as UserIcon,
-  AlertCircle,
-  GraduationCap,
-  Building,
-  Hash,
-} from 'lucide-react';
+import { Mail, Lock, User as UserIcon, CircleAlert as AlertCircle, GraduationCap, Building, Hash } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
