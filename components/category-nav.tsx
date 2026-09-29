@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { CATEGORIES } from '@/lib/constants';
 import * as Icons from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 export function CategoryNav({ className }: { className?: string }) {
   const pathname = usePathname();
@@ -28,7 +29,7 @@ export function CategoryNav({ className }: { className?: string }) {
         All
       </Link>
       {CATEGORIES.map((cat) => {
-        const Icon = (Icons[cat.icon as keyof typeof Icons] as Icons.LucideIcon) || Icons.Package;
+        const Icon = (Icons[cat.icon as keyof typeof Icons] as LucideIcon) || Icons.Package;
         const href = `/category/${cat.slug}`;
         const isActive = pathname === href;
         return (
