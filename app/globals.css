@@ -2,26 +2,102 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
+    /* Neutral foundation — warm slate */
+    --background: 210 20% 98%;
+    --foreground: 215 25% 17%;
+
+    /* Primary — deep teal (fresh startup feel, not purple) */
+    --primary: 173 58% 29%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary — soft teal tint */
+    --secondary: 173 30% 92%;
+    --secondary-foreground: 173 40% 20%;
+
+    /* Accent — amber for CTAs */
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --muted: 210 16% 93%;
+    --muted-foreground: 215 14% 45%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 17%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 35%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 173 58% 29%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 215 28% 9%;
+    --foreground: 210 20% 92%;
+
+    --primary: 173 55% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 173 25% 16%;
+    --secondary-foreground: 173 30% 80%;
+
+    --accent: 38 92% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --muted: 215 20% 16%;
+    --muted-foreground: 210 14% 60%;
+
+    --card: 215 25% 12%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 215 25% 12%;
+    --popover-foreground: 210 20% 92%;
+
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 215 20% 20%;
+    --input: 215 20% 20%;
+    --ring: 173 55% 38%;
   }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
