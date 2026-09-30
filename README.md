@@ -131,22 +131,86 @@ npm run build
 
 ### Database Migrations
 
-Migrations are applied via the Supabase MCP tools (not the CLI). Each migration is tracked in the Supabase dashboard. To see applied migrations, check the Supabase dashboard → SQL Editor → Migrations.
+Seven migrations have been applied via the Supabase MCP tools:
+
+| Migration | Description |
+|---|---|
+| `001_profiles_and_categories` | Enum types, profiles table, categories table, admin helper functions, auto-create profile trigger, seed 9 categories |
+| `002_products_and_images` | Products table with price/condition/status, product_images child table, per-owner RLS |
+| `003_orders_favorites_reviews` | Orders (reservation system), favorites (bookmarks), reviews (gated to completed orders) |
+| `004_notifications_and_reports` | Per-user notifications, moderation reports with admin-only resolution |
+| `005_storage_bucket` | Private `product-images` bucket with 5MB limit, per-user folder policies |
+| `006_fix_security_warnings` | Fixed mutable search_path on trigger functions, revoked PUBLIC EXECUTE on SECURITY DEFINER functions |
+| `007_revoke_trigger_function_execute` | Revoked anon/authenticated EXECUTE on trigger-only functions |
+
+To see applied migrations, check the Supabase dashboard → SQL Editor → Migrations.
+
+### Database Schema
+
+```
+profiles          ← auth.users (1:1, auto-created on signup)
+  id, name, email, roll_number, branch, year, hostel_block,
+  avatar_url, role, is_suspended, created_at, updated_at
+
+categories        ← seeded (9 rows: Books, Electronics, ...)
+  id, name, slug, icon, sort_order
+
+products          ← profiles (seller), categories
+  id, seller_id, category_id, title, description, price,
+  condition, status, image_url, view_count, created_at, updated_at
+
+product_images    ← products (1:N)
+  id, product_id, image_url, sort_order
+
+orders            ← products, profiles (buyer + seller)
+  id, product_id, buyer_id, seller_id, status, quantity,
+  message, meeting_location, completed_at, created_at, updated_at
+
+favorites         ← profiles, products (user bookmarks)
+  id, user_id, product_id (UNIQUE user+product)
+
+reviews           ← orders, profiles (reviewer + reviewee), products
+  id, order_id (UNIQUE), reviewer_id, reviewee_id, product_id,
+  rating (1-5), comment
+
+notifications     ← profiles (per-user alerts)
+  id, user_id, type, title, body, link, is_read
+
+reports           ← profiles (reporter), profiles (resolver)
+  id, reporter_id, target_type, target_id, reason, status,
+  admin_notes, resolved_by, resolved_at
+```
 
 ### Row Level Security (RLS)
 
-Every table has RLS enabled with policies that enforce:
-- Users can only modify their own data (listings, orders, favorites, profile)
-- Public marketplace data (active listings, categories) is readable by all
-- Admin operations require JWT `user_role = 'admin'` in `raw_app_meta_data`
-- Private user data (email, phone, roll number) is not exposed publicly
+Every table has RLS enabled. Key policies:
+
+- **profiles:** Users read/update their own profile. Admins read all. `role` and `is_suspended` columns are protected via column-level grants — only admin SECURITY DEFINER functions can change them.
+- **categories:** Public read (anon + authenticated). No client writes.
+- **products:** Public can browse active/reserved/sold listings. Sellers see their own removed listings. Only the seller or admin can create/update/delete. `seller_id` defaults to `auth.uid()`.
+- **product_images:** Public can view images of visible products. Only the product's seller or admin can add/modify/delete images.
+- **orders:** Only buyer, seller, or admin can view/update/delete. Buyer creates orders; `seller_id` is auto-set from the product via a trigger.
+- **favorites:** Owner-only access (SELECT/INSERT/DELETE). Unique constraint prevents duplicate bookmarks.
+- **reviews:** Public read. INSERT gated server-side: only the buyer of a **completed** order can leave a review for that order. One review per order (UNIQUE constraint).
+- **notifications:** Owner-only access.
+- **reports:** Reporter sees their own reports; admins see all. Only admins can update status/notes. Reporters cannot delete reports once submitted.
+
+### Admin Privilege Protection
+
+Admin authorization uses a `role` column in `profiles` (enum: `user`, `admin`).
+
+- The `role` and `is_suspended` columns are **not writable by clients** — `REVOKE UPDATE` removes them from the authenticated role's column grants.
+- Changes go through SECURITY DEFINER functions (`set_user_role`, `set_user_suspended`) that verify the caller is an admin before modifying the target user.
+- The `is_admin()` helper function checks `profiles.role = 'admin'` for the current session and is used by RLS policies across all tables.
+- An unauthenticated user cannot call any SECURITY DEFINER function.
 
 ### Storage
 
-Product images are stored in a Supabase Storage bucket (`product-images`). Policies ensure:
-- Anyone can view product images
-- Only the listing owner can upload/modify/delete their images
-- Images are organized in per-user folders
+Product images are stored in a private Supabase Storage bucket (`product-images`). Policies ensure:
+- Anyone can view product images (anon read)
+- Only authenticated users can upload, into their own folder: `product-images/<uid>/<filename>`
+- Only the folder owner can update/delete their images
+- File size limit: 5MB. Allowed types: JPEG, PNG, WebP, GIF
 
 ## Deployment
 
@@ -164,7 +228,7 @@ The project is configured for zero-config deployment. No Docker or local service
 ## Development Phases
 
 - [x] **Phase 1:** Project foundation (Next.js, Supabase connection, design system, navbar, homepage, auth pages)
-- [ ] **Phase 2:** Database schema, migrations, RLS policies, seed categories
+- [x] **Phase 2:** Database schema, migrations, RLS policies, seed categories
 - [ ] **Phase 3:** Marketplace (listings, image uploads, product page, search, filtering)
 - [ ] **Phase 4:** User functionality (profile, seller dashboard, buyer dashboard, favorites)
 - [ ] **Phase 5:** Reservations (orders, workflow, notifications)
@@ -179,7 +243,7 @@ This project is designed to be picked up from any browser-based IDE:
 1. Clone from GitHub — the repo is the single source of truth
 2. Run `npm install` to restore dependencies
 3. Ensure `.env` has the Supabase variables (get them from the Supabase dashboard → Settings → API)
-4. The database schema and RLS policies live in Supabase, not in the repo — they're managed via Supabase MCP tools or the Supabase dashboard
+4. The database schema and RLS policies live in Supabase, applied via 7 tracked migrations — managed via Supabase MCP tools or the Supabase dashboard
 5. Start coding
 
 ### Notes for Continuation
@@ -187,4 +251,4 @@ This project is designed to be picked up from any browser-based IDE:
 - All database migrations are applied directly to the Supabase project. There are no local migration files that need to be run.
 - Edge functions are deployed via Supabase MCP tools. Source files live in `supabase/functions/`.
 - The Supabase config is in `supabase/config.toml`.
-- TypeScript types for the database will be generated in `lib/types/` in Phase 2.
+- TypeScript types for the database can be generated from the Supabase dashboard (Settings → API → Type Generation) or via `npx supabase gen types`.
