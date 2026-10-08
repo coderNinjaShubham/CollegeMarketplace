@@ -2,18 +2,7 @@ import Link from 'next/link';
 import { Package } from 'lucide-react';
 import { formatPrice, timeAgo, cn } from '@/lib/utils';
 import { getConditionLabel } from '@/lib/constants';
-
-export interface ProductCardData {
-  id: string;
-  title: string;
-  price: number;
-  condition: string;
-  status: string;
-  image_url?: string | null;
-  category_name?: string | null;
-  seller_name?: string | null;
-  created_at: string;
-}
+import type { ProductWithCategory } from '@/lib/types';
 
 const statusBadge: Record<string, { label: string; className: string }> = {
   active: { label: 'Active', className: 'bg-success/10 text-success' },
@@ -22,8 +11,9 @@ const statusBadge: Record<string, { label: string; className: string }> = {
   removed: { label: 'Removed', className: 'bg-muted text-muted-foreground' },
 };
 
-export function ProductCard({ product }: { product: ProductCardData }) {
+export function ProductCard({ product }: { product: ProductWithCategory }) {
   const badge = statusBadge[product.status] ?? statusBadge.active;
+  const categoryName = product.categories?.name ?? null;
 
   return (
     <Link
@@ -63,8 +53,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
             {getConditionLabel(product.condition)}
           </span>
         </div>
-        {product.category_name && (
-          <p className="text-xs text-muted-foreground">{product.category_name}</p>
+        {categoryName && (
+          <p className="text-xs text-muted-foreground">{categoryName}</p>
         )}
         <p className="text-xs text-muted-foreground">
           {timeAgo(product.created_at)}

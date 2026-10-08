@@ -1,48 +1,25 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { getCategories } from '@/lib/queries';
+import { ProductForm } from '@/components/product-form';
 
-import { Package } from 'lucide-react';
-import { EmptyState } from '@/components/empty-state';
-import { useAuth } from '@/hooks/use-auth';
-import { Spinner } from '@/components/ui/spinner';
-
-export default function SellPage() {
-  const { loading, user } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
+export default async function SellPage() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    return (
-      <div className="mx-auto max-w-md py-12">
-        <EmptyState
-          icon={Package}
-          title="Sign in to sell"
-          description="You need an account to list items on NITW Market."
-          action={{
-            label: 'Sign in',
-            href: '/login?redirect=/sell',
-          }}
-        />
-      </div>
-    );
+    redirect('/login?redirect=/sell');
   }
+
+  const categories = await getCategories();
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6">
       <h1 className="mb-2 text-2xl font-bold">List an Item</h1>
       <p className="mb-6 text-sm text-muted-foreground">
-        The listing form will be added in Phase 3 when the database is ready.
+        Fill in the details below to post your item on the marketplace.
       </p>
-      <EmptyState
-        icon={Package}
-        title="Coming soon"
-        description="The product listing form will be available once the database schema is set up in Phase 2."
-      />
+      <ProductForm mode="create" categories={categories} />
     </div>
   );
 }
