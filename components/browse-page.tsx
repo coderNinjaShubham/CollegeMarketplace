@@ -22,12 +22,14 @@ export function BrowsePage() {
 
   const [products, setProducts] = useState<ProductWithCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [conditionFilter, setConditionFilter] = useState<ConditionFilter>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const supabase = createClient();
       let dbQuery = supabase
@@ -58,6 +60,7 @@ export function BrowsePage() {
       setProducts((data as ProductWithCategory[]) || []);
     } catch (err) {
       console.error('Failed to fetch products', err);
+      setError('Could not load listings. Please try again.');
       setProducts([]);
     } finally {
       setLoading(false);
@@ -137,6 +140,8 @@ export function BrowsePage() {
 
       {loading ? (
         <LoadingSkeleton />
+      ) : error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center text-sm text-destructive">{error}</div>
       ) : products.length === 0 ? (
         <EmptyState
           icon={Package}

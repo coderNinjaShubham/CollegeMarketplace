@@ -229,7 +229,7 @@ The project is configured for zero-config deployment. No Docker or local service
 
 - [x] **Phase 1:** Project foundation (Next.js, Supabase connection, design system, navbar, homepage, auth pages)
 - [x] **Phase 2:** Database schema, migrations, RLS policies, seed categories
-- [ ] **Phase 3:** Marketplace (listings, image uploads, product page, search, filtering)
+- [x] **Phase 3:** Marketplace (listings, image uploads, product page, search, filtering)
 - [ ] **Phase 4:** User functionality (profile, seller dashboard, buyer dashboard, favorites)
 - [ ] **Phase 5:** Reservations (orders, workflow, notifications)
 - [ ] **Phase 6:** Trust and safety (reviews, reports, admin dashboard, moderation)

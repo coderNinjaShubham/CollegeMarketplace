@@ -10,7 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { CONDITIONS, CATEGORIES } from '@/lib/constants';
+import { ProductImage } from '@/components/product-image';
+import { CONDITIONS } from '@/lib/constants';
 import type { Category, ProductCondition, Product } from '@/lib/types';
 
 interface ProductFormProps {
@@ -89,11 +90,7 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(path);
-
-      setImageUrl(urlData.publicUrl);
+      setImageUrl(path);
     } catch (err) {
       console.error('Image upload failed', err);
       setError('Could not upload the image. Please try again.');
@@ -157,6 +154,14 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
           .single();
 
         if (insertError) throw insertError;
+        if (imageUrl) {
+          const { error: imageError } = await supabase.from('product_images').insert({
+            product_id: data.id,
+            image_url: imageUrl,
+            sort_order: 0,
+          });
+          if (imageError) throw imageError;
+        }
         if (onSaved) onSaved();
         else router.push(`/product/${data.id}`);
       } else if (mode === 'edit' && product) {
@@ -166,6 +171,14 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
           .eq('id', product.id);
 
         if (updateError) throw updateError;
+        if (imageUrl && imageUrl !== product.image_url) {
+          const { error: imageError } = await supabase.from('product_images').insert({
+            product_id: product.id,
+            image_url: imageUrl,
+            sort_order: 0,
+          });
+          if (imageError) throw imageError;
+        }
         if (onSaved) onSaved();
         else router.push(`/product/${product.id}`);
         router.refresh();
@@ -264,11 +277,10 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
         <p className="text-xs text-muted-foreground">JPEG, PNG, WebP, or GIF. Max 5MB.</p>
         {imageUrl ? (
           <div className="relative inline-block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
+            <ProductImage
+              path={imageUrl}
               alt="Product preview"
-              className="h-48 w-48 rounded-lg border border-border object-cover"
+              className="h-48 w-48 rounded-lg border border-border"
             />
             <button
               type="button"
