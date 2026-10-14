@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { getCategories } from '@/lib/queries';
 import { ProductForm } from '@/components/product-form';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SellPage() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();

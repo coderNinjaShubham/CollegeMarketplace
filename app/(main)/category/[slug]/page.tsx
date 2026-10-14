@@ -4,6 +4,8 @@ import { Package } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { ProductCard } from '@/components/product-card';
 
+export const dynamic = 'force-dynamic';
+
 export default async function CategoryPage({
   params,
 }: {

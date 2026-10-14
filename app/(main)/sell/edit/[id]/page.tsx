@@ -5,6 +5,8 @@ import { ProductForm } from '@/components/product-form';
 import { Package } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 
+export const dynamic = 'force-dynamic';
+
 export default async function EditListingPage({
   params,
 }: {

@@ -7,6 +7,8 @@ import { EmptyState } from '@/components/empty-state';
 import { ProductCard } from '@/components/product-card';
 import { getRecentProducts } from '@/lib/queries';
 
+export const dynamic = 'force-dynamic';
+
 export default async function HomePage() {
   const products = await getRecentProducts(8);
 
