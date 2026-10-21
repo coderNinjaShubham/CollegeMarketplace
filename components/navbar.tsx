@@ -15,6 +15,7 @@ import {
   Package,
   ShoppingBag,
   Bell,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -110,6 +111,9 @@ export function Navbar() {
                       <DropdownLink href="/dashboard/saved" icon={Heart} label="Saved Items" />
                       <DropdownLink href="/dashboard/notifications" icon={Bell} label="Notifications" />
                       <DropdownLink href="/dashboard/profile" icon={UserIcon} label="Profile" />
+                      {(profile as any)?.role === 'admin' && (
+                        <DropdownLink href="/admin" icon={ShieldAlert} label="Admin Console" />
+                      )}
                       <button
                         onClick={handleSignOut}
                         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
@@ -191,6 +195,11 @@ export function Navbar() {
                   <Button asChild variant="ghost">
                     <Link href="/dashboard/profile">Profile</Link>
                   </Button>
+                  {(profile as any)?.role === 'admin' && (
+                    <Button asChild variant="ghost" className="text-primary font-semibold">
+                      <Link href="/admin">Admin Console</Link>
+                    </Button>
+                  )}
                   <Button variant="ghost" onClick={handleSignOut} className="justify-start text-destructive">
                     <LogOut className="h-4 w-4" />
                     Sign Out

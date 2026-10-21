@@ -14,12 +14,16 @@ import {
   MessageSquare,
   UserRound,
   AlertCircle,
+  Star,
+  Flag,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/empty-state';
 import { ProductImage } from '@/components/product-image';
+import { ReviewModal } from '@/components/review-modal';
+import { ReportModal } from '@/components/report-modal';
 import { formatPrice, timeAgo } from '@/lib/utils';
 import type { Order, OrderStatus } from '@/lib/types';
 
@@ -195,6 +199,13 @@ export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps)
     setActionId(null);
   }
 
+  const [reviewOrder, setReviewOrder] = useState<Order | null>(null);
+  const [reportTarget, setReportTarget] = useState<{
+    type: 'product' | 'user';
+    id: string;
+    title: string;
+  } | null>(null);
+
   const pendingSellerCount = sellerOrders.filter((o) => o.status === 'pending').length;
 
   return (
@@ -256,6 +267,14 @@ export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps)
           actionId={actionId}
           onCancel={(id) => transition(id, 'cancelled')}
           onComplete={(id) => transition(id, 'completed')}
+          onReview={(order) => setReviewOrder(order)}
+          onReport={(order) =>
+            setReportTarget({
+              type: 'product',
+              id: order.product_id,
+              title: (order.products as any)?.title || 'Order item',
+            })
+          }
         />
       )}
 
@@ -266,6 +285,37 @@ export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps)
           onAccept={(id) => transition(id, 'accepted')}
           onReject={(id) => transition(id, 'rejected')}
           onComplete={(id) => transition(id, 'completed')}
+          onReport={(order) =>
+            setReportTarget({
+              type: 'user',
+              id: order.buyer_id,
+              title: (order.buyer_profile as any)?.name || 'Buyer',
+            })
+          }
+        />
+      )}
+
+      {/* Review Modal for completed buyer orders */}
+      {reviewOrder && (
+        <ReviewModal
+          open={Boolean(reviewOrder)}
+          onClose={() => setReviewOrder(null)}
+          orderId={reviewOrder.id}
+          productId={reviewOrder.product_id}
+          sellerId={reviewOrder.seller_id}
+          productTitle={(reviewOrder.products as any)?.title || 'Marketplace Item'}
+          sellerName={(reviewOrder.seller_profile as any)?.name || 'Seller'}
+        />
+      )}
+
+      {/* Report Modal */}
+      {reportTarget && (
+        <ReportModal
+          open={Boolean(reportTarget)}
+          onClose={() => setReportTarget(null)}
+          targetType={reportTarget.type}
+          targetId={reportTarget.id}
+          targetTitle={reportTarget.title}
         />
       )}
     </div>
@@ -279,11 +329,15 @@ function BuyerOrdersList({
   actionId,
   onCancel,
   onComplete,
+  onReview,
+  onReport,
 }: {
   orders: Order[];
   actionId: string | null;
   onCancel: (id: string) => void;
   onComplete: (id: string) => void;
+  onReview: (order: Order) => void;
+  onReport: (order: Order) => void;
 }) {
   if (orders.length === 0) {
     return (
@@ -368,7 +422,7 @@ function BuyerOrdersList({
                 )}
 
                 {/* Buyer actions */}
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   {(order.status === 'pending' || order.status === 'accepted') && (
                     <Button
                       size="sm"
@@ -377,7 +431,7 @@ function BuyerOrdersList({
                       onClick={() => onCancel(order.id)}
                       className="text-destructive border-destructive/30 hover:bg-destructive/10"
                     >
-                      <Ban className="h-3 w-3" /> Cancel
+                      <Ban className="h-3 w-3 mr-1" /> Cancel
                     </Button>
                   )}
                   {order.status === 'accepted' && (
@@ -387,9 +441,27 @@ function BuyerOrdersList({
                       onClick={() => onComplete(order.id)}
                       className="bg-success hover:bg-success/90 text-white"
                     >
-                      <CheckCircle2 className="h-3 w-3" /> Confirm Completion
+                      <CheckCircle2 className="h-3 w-3 mr-1" /> Confirm Completion
                     </Button>
                   )}
+                  {order.status === 'completed' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onReview(order)}
+                      className="text-amber-600 border-amber-500/30 hover:bg-amber-500/10"
+                    >
+                      <Star className="h-3.5 w-3.5 mr-1 fill-amber-400 text-amber-400" /> Leave Review
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onReport(order)}
+                    className="text-xs text-muted-foreground hover:text-destructive ml-auto"
+                  >
+                    <Flag className="h-3 w-3 mr-1" /> Report
+                  </Button>
                 </div>
               </div>
             </div>
@@ -408,12 +480,14 @@ function SellerOrdersList({
   onAccept,
   onReject,
   onComplete,
+  onReport,
 }: {
   orders: Order[];
   actionId: string | null;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
   onComplete: (id: string) => void;
+  onReport: (order: Order) => void;
 }) {
   if (orders.length === 0) {
     return (
@@ -498,7 +572,7 @@ function SellerOrdersList({
                 )}
 
                 {/* Seller actions */}
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   {order.status === 'pending' && (
                     <>
                       <Button
@@ -507,7 +581,7 @@ function SellerOrdersList({
                         onClick={() => onAccept(order.id)}
                         className="bg-success hover:bg-success/90 text-white"
                       >
-                        <CheckCircle2 className="h-3 w-3" /> Accept
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Accept
                       </Button>
                       <Button
                         size="sm"
@@ -516,7 +590,7 @@ function SellerOrdersList({
                         onClick={() => onReject(order.id)}
                         className="text-destructive border-destructive/30 hover:bg-destructive/10"
                       >
-                        <XCircle className="h-3 w-3" /> Decline
+                        <XCircle className="h-3 w-3 mr-1" /> Decline
                       </Button>
                     </>
                   )}
@@ -527,9 +601,17 @@ function SellerOrdersList({
                       onClick={() => onComplete(order.id)}
                       className="bg-success hover:bg-success/90 text-white"
                     >
-                      <CheckCircle2 className="h-3 w-3" /> Mark Completed
+                      <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Completed
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onReport(order)}
+                    className="text-xs text-muted-foreground hover:text-destructive ml-auto"
+                  >
+                    <Flag className="h-3 w-3 mr-1" /> Report Buyer
+                  </Button>
                 </div>
               </div>
             </div>

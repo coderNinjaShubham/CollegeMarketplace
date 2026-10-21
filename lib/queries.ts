@@ -1,5 +1,17 @@
 import { createClient } from '@/lib/supabase/server';
-import type { Product, ProductWithCategory, Category, Profile, Order, Favorite, Notification } from '@/lib/types';
+import type {
+  Product,
+  ProductWithCategory,
+  Category,
+  Profile,
+  Order,
+  Favorite,
+  Notification,
+  Review,
+  Report,
+  ReportStatus,
+  MarketplaceStats,
+} from '@/lib/types';
 
 // ─── Public queries (no auth needed) ──────────────────────────────────────────
 
@@ -243,4 +255,189 @@ export async function getUnreadNotificationCount(): Promise<number> {
   if (error || count === null) return 0;
   return count;
 }
+
+// ─── Review & Rating queries ──────────────────────────────────────────────────
+
+/**
+ * Get public reviews for a seller with reviewer public profile.
+ */
+export async function getSellerReviews(sellerId: string): Promise<Review[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('reviews')
+    .select(`
+      id, order_id, reviewer_id, reviewee_id, product_id, rating, comment, created_at,
+      reviewer_profile:profiles!reviews_reviewer_id_fkey ( name, branch, avatar_url ),
+      products ( title )
+    `)
+    .eq('reviewee_id', sellerId)
+    .order('created_at', { ascending: false });
+
+  if (error || !data) return [];
+  return data as unknown as Review[];
+}
+
+/**
+ * Get aggregated rating summary for a seller.
+ */
+export async function getSellerRatingSummary(sellerId: string): Promise<{
+  averageRating: number;
+  totalReviews: number;
+}> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('rating')
+    .eq('reviewee_id', sellerId);
+
+  if (error || !data || data.length === 0) {
+    return { averageRating: 0, totalReviews: 0 };
+  }
+
+  const sum = data.reduce((acc, curr) => acc + curr.rating, 0);
+  const averageRating = Math.round((sum / data.length) * 10) / 10;
+
+  return { averageRating, totalReviews: data.length };
+}
+
+/**
+ * Check if a specific order already has a review.
+ */
+export async function getOrderReview(orderId: string): Promise<Review | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('*')
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data as Review;
+}
+
+// ─── Admin-only queries (server-side role check enforced) ──────────────────────
+
+/**
+ * Server-side verification that the current session user is an admin.
+ * Never trust client-side role claims.
+ */
+export async function isAdmin(): Promise<boolean> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const { data } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  return data?.role === 'admin';
+}
+
+/**
+ * Overview analytics for the admin dashboard.
+ */
+export async function getAdminStats(): Promise<MarketplaceStats> {
+  const supabase = createClient();
+  if (!(await isAdmin())) {
+    throw new Error('Not authorized: admin role required');
+  }
+
+  const [
+    { count: totalUsers },
+    { count: totalListings },
+    { count: activeListings },
+    { count: completedOrders },
+    { count: pendingReports },
+    { data: completedData },
+  ] = await Promise.all([
+    supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('products').select('*', { count: 'exact', head: true }),
+    supabase.from('products').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
+    supabase.from('reports').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.from('orders').select('products(price)').eq('status', 'completed'),
+  ]);
+
+  let totalVolume = 0;
+  if (completedData) {
+    for (const order of completedData) {
+      const prod = order.products as any;
+      if (prod?.price) totalVolume += prod.price;
+    }
+  }
+
+  return {
+    totalUsers: totalUsers ?? 0,
+    totalListings: totalListings ?? 0,
+    activeListings: activeListings ?? 0,
+    completedOrders: completedOrders ?? 0,
+    pendingReports: pendingReports ?? 0,
+    totalVolume,
+  };
+}
+
+/**
+ * Fetch reports for admin moderation.
+ */
+export async function getAdminReports(statusFilter?: ReportStatus): Promise<Report[]> {
+  const supabase = createClient();
+  if (!(await isAdmin())) {
+    throw new Error('Not authorized: admin role required');
+  }
+
+  let query = supabase
+    .from('reports')
+    .select(`
+      *,
+      reporter_profile:profiles!reports_reporter_id_fkey ( name, email )
+    `)
+    .order('created_at', { ascending: false });
+
+  if (statusFilter) {
+    query = query.eq('status', statusFilter);
+  }
+
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return data as unknown as Report[];
+}
+
+/**
+ * Fetch all listings for admin moderation.
+ */
+export async function getAdminListings(): Promise<ProductWithCategory[]> {
+  const supabase = createClient();
+  if (!(await isAdmin())) {
+    throw new Error('Not authorized: admin role required');
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('*, categories ( name, slug )')
+    .order('created_at', { ascending: false });
+
+  if (error || !data) return [];
+  return data as ProductWithCategory[];
+}
+
+/**
+ * Fetch all user profiles for admin management.
+ */
+export async function getAdminUsers(): Promise<Profile[]> {
+  const supabase = createClient();
+  if (!(await isAdmin())) {
+    throw new Error('Not authorized: admin role required');
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error || !data) return [];
+  return data as Profile[];
+}
+
 

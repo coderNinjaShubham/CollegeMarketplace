@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Edit3, MapPin, Package, UserRound } from 'lucide-react';
+import { ArrowLeft, Edit3, MapPin, Package, UserRound, Flag, Star } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,9 +12,12 @@ import { EmptyState } from '@/components/empty-state';
 import { ProductImage } from '@/components/product-image';
 import { FavoriteButton } from '@/components/favorite-button';
 import { ReserveButton } from '@/components/reserve-button';
+import { ReportModal } from '@/components/report-modal';
+import { SellerReviews } from '@/components/seller-reviews';
+import { StarRating } from '@/components/star-rating';
 import { formatPrice, timeAgo } from '@/lib/utils';
 import { getConditionLabel } from '@/lib/constants';
-import type { ProductImage as ProductImageRow, ProductWithCategory } from '@/lib/types';
+import type { ProductImage as ProductImageRow, ProductWithCategory, Review } from '@/lib/types';
 
 interface ProductDetailPageProps {
   params: { id: string };
@@ -36,6 +39,12 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [favoriteId, setFavoriteId] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [ratingSummary, setRatingSummary] = useState<{ averageRating: number; totalReviews: number }>({
+    averageRating: 0,
+    totalReviews: 0,
+  });
+  const [reportOpen, setReportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -65,6 +74,26 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       setProduct(productData);
       setImages((imageData as ProductImageRow[]) || []);
       setSelectedImage(productData.image_url || imageData?.[0]?.image_url || null);
+
+      // Fetch seller's verified reviews
+      const { data: revData } = await supabase
+        .from('reviews')
+        .select(`
+          id, order_id, reviewer_id, reviewee_id, product_id, rating, comment, created_at,
+          reviewer_profile:profiles!reviews_reviewer_id_fkey ( name, branch, avatar_url ),
+          products ( title )
+        `)
+        .eq('reviewee_id', productData.seller_id)
+        .order('created_at', { ascending: false });
+
+      if (revData && revData.length > 0) {
+        setReviews(revData as unknown as Review[]);
+        const sum = revData.reduce((acc: number, curr: any) => acc + curr.rating, 0);
+        setRatingSummary({
+          averageRating: Math.round((sum / revData.length) * 10) / 10,
+          totalReviews: revData.length,
+        });
+      }
 
       if (user) {
         setIsLoggedIn(true);
@@ -194,6 +223,16 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                 </p>
               )}
             </div>
+
+            <div className="mt-3 flex items-center gap-1.5 pt-2.5 border-t border-border">
+              <StarRating value={ratingSummary.averageRating} readOnly size="sm" />
+              <span className="text-xs font-semibold text-foreground">
+                {ratingSummary.totalReviews > 0 ? ratingSummary.averageRating.toFixed(1) : 'New seller'}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                ({ratingSummary.totalReviews} {ratingSummary.totalReviews === 1 ? 'review' : 'reviews'})
+              </span>
+            </div>
           </div>
 
           {/* Action buttons */}
@@ -215,8 +254,39 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
               This item is {statusLabels[product.status].toLowerCase()} and no longer available for reservation.
             </div>
           )}
+
+          {!isOwner && (
+            <button
+              type="button"
+              onClick={() => setReportOpen(true)}
+              className="flex items-center justify-center gap-1.5 w-full py-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <Flag className="h-3.5 w-3.5" /> Report this listing
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Seller Reviews Section */}
+      <div className="mt-12 border-t border-border pt-8 max-w-2xl">
+        <h2 className="text-lg font-bold mb-4">Seller Reviews & Reputation</h2>
+        <SellerReviews
+          reviews={reviews}
+          averageRating={ratingSummary.averageRating}
+          totalReviews={ratingSummary.totalReviews}
+        />
+      </div>
+
+      {/* Report Modal */}
+      {reportOpen && (
+        <ReportModal
+          open={reportOpen}
+          onClose={() => setReportOpen(false)}
+          targetType="product"
+          targetId={product.id}
+          targetTitle={product.title}
+        />
+      )}
     </div>
   );
 }
