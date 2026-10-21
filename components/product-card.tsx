@@ -1,9 +1,9 @@
 import Link from 'next/link';
-import { Package } from 'lucide-react';
 import { formatPrice, timeAgo, cn } from '@/lib/utils';
 import { getConditionLabel } from '@/lib/constants';
 import type { ProductWithCategory } from '@/lib/types';
 import { ProductImage } from '@/components/product-image';
+import { FavoriteButton } from '@/components/favorite-button';
 
 const statusBadge: Record<string, { label: string; className: string }> = {
   active: { label: 'Available', className: 'bg-success/10 text-success' },
@@ -12,17 +12,50 @@ const statusBadge: Record<string, { label: string; className: string }> = {
   removed: { label: 'Removed', className: 'bg-muted text-muted-foreground' },
 };
 
-export function ProductCard({ product }: { product: ProductWithCategory }) {
+interface ProductCardProps {
+  product: ProductWithCategory;
+  /** Pass current user's favorite state for this product (optional, defaults false) */
+  isFavorited?: boolean;
+  favoriteId?: string | null;
+  /** Set to true when showing user's own listings — hides the favorite button */
+  isOwnListing?: boolean;
+}
+
+export function ProductCard({
+  product,
+  isFavorited = false,
+  favoriteId,
+  isOwnListing = false,
+}: ProductCardProps) {
   const badge = statusBadge[product.status] ?? statusBadge.active;
   const categoryName = product.categories?.name ?? null;
 
   return (
-    <Link href={`/product/${product.id}`} className="group overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md">
+    <Link
+      href={`/product/${product.id}`}
+      className="group overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
+    >
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-        <ProductImage path={product.image_url} alt={product.title} imageClassName="transition-transform duration-300 group-hover:scale-105" />
+        <ProductImage
+          path={product.image_url}
+          alt={product.title}
+          imageClassName="transition-transform duration-300 group-hover:scale-105"
+        />
         {product.status !== 'active' && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <span className={cn('rounded-full px-3 py-1 text-xs font-medium', badge.className)}>{badge.label}</span>
+            <span className={cn('rounded-full px-3 py-1 text-xs font-medium', badge.className)}>
+              {badge.label}
+            </span>
+          </div>
+        )}
+        {/* Favorite button — only shown for non-own listings */}
+        {!isOwnListing && (
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <FavoriteButton
+              productId={product.id}
+              initialFavorited={isFavorited}
+              initialFavoriteId={favoriteId}
+            />
           </div>
         )}
       </div>

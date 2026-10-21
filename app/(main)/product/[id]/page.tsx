@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/empty-state';
 import { ProductImage } from '@/components/product-image';
+import { FavoriteButton } from '@/components/favorite-button';
+import { ReserveButton } from '@/components/reserve-button';
 import { formatPrice, timeAgo } from '@/lib/utils';
 import { getConditionLabel } from '@/lib/constants';
 import type { ProductImage as ProductImageRow, ProductWithCategory } from '@/lib/types';
@@ -31,6 +33,9 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const [images, setImages] = useState<ProductImageRow[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [favoriteId, setFavoriteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -39,7 +44,12 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       setLoading(true);
       setError(false);
       const supabase = createClient();
-      const [{ data, error: productError }, { data: imageData }, { data: { user } }] = await Promise.all([
+
+      const [
+        { data, error: productError },
+        { data: imageData },
+        { data: { user } },
+      ] = await Promise.all([
         supabase.from('products').select('*, categories ( name, slug )').eq('id', params.id).maybeSingle(),
         supabase.from('product_images').select('*').eq('product_id', params.id).order('sort_order'),
         supabase.auth.getUser(),
@@ -55,7 +65,24 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       setProduct(productData);
       setImages((imageData as ProductImageRow[]) || []);
       setSelectedImage(productData.image_url || imageData?.[0]?.image_url || null);
-      setIsOwner(user?.id === productData.seller_id);
+
+      if (user) {
+        setIsLoggedIn(true);
+        setIsOwner(user.id === productData.seller_id);
+
+        // Check favorite status — RLS scoped to auth.uid()
+        const { data: favData } = await supabase
+          .from('favorites')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('product_id', params.id)
+          .maybeSingle();
+        if (favData) {
+          setIsFavorited(true);
+          setFavoriteId(favData.id);
+        }
+      }
+
       setLoading(false);
     }
 
@@ -80,23 +107,36 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
     );
   }
 
-  const gallery = [product.image_url, ...images.map((image) => image.image_url)].filter(
+  const gallery = [product.image_url, ...images.map((img) => img.image_url)].filter(
     (path, index, all): path is string => Boolean(path) && all.indexOf(path) === index
   );
-  const canEdit = isOwner;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <button onClick={() => router.back()} className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+      <button
+        onClick={() => router.back()}
+        className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        {/* Image gallery */}
         <div>
-          <div className="overflow-hidden rounded-xl border border-border bg-muted">
+          <div className="relative overflow-hidden rounded-xl border border-border bg-muted">
             <div className="aspect-[4/3]">
               <ProductImage path={selectedImage} alt={product.title} />
             </div>
+            {/* Favorite button overlay */}
+            {!isOwner && (
+              <div className="absolute top-3 right-3">
+                <FavoriteButton
+                  productId={product.id}
+                  initialFavorited={isFavorited}
+                  initialFavoriteId={favoriteId}
+                />
+              </div>
+            )}
           </div>
           {gallery.length > 1 && (
             <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
@@ -114,6 +154,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
           )}
         </div>
 
+        {/* Details panel */}
         <div className="space-y-6">
           <div>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -124,7 +165,9 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
             </div>
             <h1 className="text-3xl font-bold tracking-tight">{product.title}</h1>
             <p className="mt-3 text-3xl font-bold text-primary">{formatPrice(product.price)}</p>
-            <p className="mt-2 text-sm text-muted-foreground">{getConditionLabel(product.condition)} · Listed {timeAgo(product.created_at)}</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {getConditionLabel(product.condition)} · Listed {timeAgo(product.created_at)}
+            </p>
           </div>
 
           <div className="border-y border-border py-5">
@@ -132,6 +175,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
             <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{product.description}</p>
           </div>
 
+          {/* Seller card — only public info */}
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="mb-3 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -145,19 +189,30 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
             <div className="space-y-2 text-sm text-muted-foreground">
               {product.seller_branch && <p>{product.seller_branch}</p>}
               {product.seller_hostel_block && (
-                <p className="flex items-center gap-2"><MapPin className="h-4 w-4" />{product.seller_hostel_block}</p>
+                <p className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />{product.seller_hostel_block}
+                </p>
               )}
             </div>
           </div>
 
-          {canEdit && (
+          {/* Action buttons */}
+          {isOwner ? (
             <Button asChild className="w-full">
-              <Link href={`/sell/edit/${product.id}`}><Edit3 className="h-4 w-4" /> Edit listing</Link>
+              <Link href={`/sell/edit/${product.id}`}>
+                <Edit3 className="h-4 w-4" /> Edit listing
+              </Link>
             </Button>
-          )}
-          {!canEdit && product.status === 'active' && (
-            <div className="rounded-lg bg-secondary p-4 text-sm text-secondary-foreground">
-              Interested in this item? Contact the seller through the campus marketplace to arrange pickup.
+          ) : product.status === 'active' ? (
+            <ReserveButton
+              productId={product.id}
+              productTitle={product.title}
+              productPrice={product.price}
+              sellerId={product.seller_id}
+            />
+          ) : (
+            <div className="rounded-lg bg-muted p-4 text-center text-sm text-muted-foreground">
+              This item is {statusLabels[product.status].toLowerCase()} and no longer available for reservation.
             </div>
           )}
         </div>

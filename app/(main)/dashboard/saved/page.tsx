@@ -1,19 +1,24 @@
-import { Heart } from 'lucide-react';
-import { EmptyState } from '@/components/empty-state';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { getMyProfile, getMyFavorites } from '@/lib/queries';
+import { DashboardShell } from '@/components/dashboard/dashboard-shell';
+import { SavedSection } from '@/components/dashboard/saved-section';
 
-export default function SavedItemsPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function SavedPage() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login?redirect=/dashboard/saved');
+
+  const [profile, favorites] = await Promise.all([
+    getMyProfile(),
+    getMyFavorites(),
+  ]);
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-      <h1 className="mb-6 text-2xl font-bold">Saved Items</h1>
-      <EmptyState
-        icon={Heart}
-        title="No saved items yet"
-        description="Tap the heart icon on any product to save it for later."
-        action={{
-          label: 'Browse marketplace',
-          href: '/browse',
-        }}
-      />
-    </div>
+    <DashboardShell profile={profile} activeTab="saved">
+      <SavedSection favorites={favorites} />
+    </DashboardShell>
   );
 }

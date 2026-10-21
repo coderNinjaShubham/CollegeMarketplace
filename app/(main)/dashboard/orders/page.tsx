@@ -1,19 +1,25 @@
-import { ShoppingBag } from 'lucide-react';
-import { EmptyState } from '@/components/empty-state';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { getMyProfile, getMyBuyerOrders, getMySellerOrders } from '@/lib/queries';
+import { DashboardShell } from '@/components/dashboard/dashboard-shell';
+import { OrdersSection } from '@/components/dashboard/orders-section';
 
-export default function OrdersPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function OrdersPage() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login?redirect=/dashboard/orders');
+
+  const [profile, buyerOrders, sellerOrders] = await Promise.all([
+    getMyProfile(),
+    getMyBuyerOrders(),
+    getMySellerOrders(),
+  ]);
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-      <h1 className="mb-6 text-2xl font-bold">My Orders</h1>
-      <EmptyState
-        icon={ShoppingBag}
-        title="No orders yet"
-        description="When you reserve an item, it will appear here for you to track."
-        action={{
-          label: 'Browse marketplace',
-          href: '/browse',
-        }}
-      />
-    </div>
+    <DashboardShell profile={profile} activeTab="orders">
+      <OrdersSection buyerOrders={buyerOrders} sellerOrders={sellerOrders} />
+    </DashboardShell>
   );
 }
