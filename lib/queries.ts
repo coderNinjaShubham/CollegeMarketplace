@@ -63,7 +63,7 @@ export async function getProductsByCategory(slug: string): Promise<ProductWithCa
   const supabase = createClient();
   const { data, error } = await supabase
     .from('products')
-    .select(`*, categories ( name, slug )`)
+    .select(`*, categories!inner( name, slug )`)
     .eq('categories.slug', slug)
     .in('status', ['active', 'reserved', 'sold'])
     .order('created_at', { ascending: false });

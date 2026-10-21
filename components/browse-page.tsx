@@ -32,9 +32,13 @@ export function BrowsePage() {
     setError('');
     try {
       const supabase = createClient();
+      const selectClause = categoryFilter
+        ? '*, categories!inner( name, slug )'
+        : '*, categories ( name, slug )';
+
       let dbQuery = supabase
         .from('products')
-        .select(`*, categories ( name, slug )`)
+        .select(selectClause)
         .in('status', ['active', 'reserved', 'sold']);
 
       if (query) {

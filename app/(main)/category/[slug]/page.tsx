@@ -3,6 +3,7 @@ import { getCategoryName } from '@/lib/constants';
 import { Package } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { ProductCard } from '@/components/product-card';
+import { CategoryNav } from '@/components/category-nav';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,10 @@ export default async function CategoryPage({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <h1 className="mb-6 text-2xl font-bold">{categoryName}</h1>
+      <div className="mb-6 space-y-4">
+        <h1 className="text-2xl font-bold">{categoryName}</h1>
+        <CategoryNav />
+      </div>
 
       {products.length === 0 ? (
         <EmptyState
