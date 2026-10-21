@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Package, Heart, ShoppingBag, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, Package, Heart, ShoppingBag, User as UserIcon, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Profile } from '@/lib/types';
 
@@ -16,6 +16,7 @@ const NAV = [
   { label: 'My Listings', href: '/dashboard', icon: Package, tab: 'listings' },
   { label: 'Orders', href: '/dashboard/orders', icon: ShoppingBag, tab: 'orders' },
   { label: 'Saved', href: '/dashboard/saved', icon: Heart, tab: 'saved' },
+  { label: 'Notifications', href: '/dashboard/notifications', icon: Bell, tab: 'notifications' },
   { label: 'Profile', href: '/dashboard/profile', icon: UserIcon, tab: 'profile' },
 ];
 

@@ -13,12 +13,15 @@ import {
   User as UserIcon,
   Heart,
   Package,
+  ShoppingBag,
+  Bell,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';
 import { SearchBar } from '@/components/search-bar';
 import { CategoryNav } from '@/components/category-nav';
+import { NotificationBell } from '@/components/notification-bell';
 import { cn } from '@/lib/utils';
 
 export function Navbar() {
@@ -72,46 +75,52 @@ export function Navbar() {
           {loading ? (
             <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
           ) : user ? (
-            <div className="relative">
-              <button
-                onClick={() => setProfileOpen(!profileOpen)}
-                className="flex items-center gap-2 rounded-full p-0.5 pr-2 transition-colors hover:bg-muted"
-              >
-                <Avatar
-                  src={profile?.avatar_url || undefined}
-                  fallback={profile?.name || user.email || 'U'}
-                  className="h-8 w-8"
-                />
-                <span className="hidden text-sm font-medium lg:block max-w-[100px] truncate">
-                  {profile?.name || 'Profile'}
-                </span>
-              </button>
+            <div className="flex items-center gap-1.5">
+              <NotificationBell />
 
-              {profileOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setProfileOpen(false)}
+              <div className="relative">
+                <button
+                  onClick={() => setProfileOpen(!profileOpen)}
+                  className="flex items-center gap-2 rounded-full p-0.5 pr-2 transition-colors hover:bg-muted"
+                >
+                  <Avatar
+                    src={profile?.avatar_url || undefined}
+                    fallback={profile?.name || user.email || 'U'}
+                    className="h-8 w-8"
                   />
-                  <div className="absolute right-0 top-12 z-50 w-56 rounded-lg border border-border bg-popover p-1.5 shadow-lg animate-scale-in">
-                    <div className="px-3 py-2 border-b border-border mb-1">
-                      <p className="text-sm font-medium truncate">{profile?.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  <span className="hidden text-sm font-medium lg:block max-w-[100px] truncate">
+                    {profile?.name || 'Profile'}
+                  </span>
+                </button>
+
+                {profileOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setProfileOpen(false)}
+                    />
+                    <div className="absolute right-0 top-12 z-50 w-56 rounded-lg border border-border bg-popover p-1.5 shadow-lg animate-scale-in">
+                      <div className="px-3 py-2 border-b border-border mb-1">
+                        <p className="text-sm font-medium truncate">{profile?.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                      </div>
+                      <DropdownLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" />
+                      <DropdownLink href="/dashboard" icon={Package} label="My Listings" />
+                      <DropdownLink href="/dashboard/orders" icon={ShoppingBag} label="My Orders" />
+                      <DropdownLink href="/dashboard/saved" icon={Heart} label="Saved Items" />
+                      <DropdownLink href="/dashboard/notifications" icon={Bell} label="Notifications" />
+                      <DropdownLink href="/dashboard/profile" icon={UserIcon} label="Profile" />
+                      <button
+                        onClick={handleSignOut}
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Sign Out
+                      </button>
                     </div>
-                    <DropdownLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-                    <DropdownLink href="/dashboard" icon={Package} label="My Listings" />
-                    <DropdownLink href="/dashboard/saved" icon={Heart} label="Saved Items" />
-                    <DropdownLink href="/dashboard/profile" icon={UserIcon} label="Profile" />
-                    <button
-                      onClick={handleSignOut}
-                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                </>
-              )}
+                  </>
+                )}
+              </div>
             </div>
           ) : (
             <div className="hidden items-center gap-2 sm:flex">
@@ -169,6 +178,15 @@ export function Navbar() {
                 <>
                   <Button asChild variant="outline">
                     <Link href="/dashboard">Dashboard</Link>
+                  </Button>
+                  <Button asChild variant="ghost">
+                    <Link href="/dashboard/orders">My Orders</Link>
+                  </Button>
+                  <Button asChild variant="ghost">
+                    <Link href="/dashboard/saved">Saved Items</Link>
+                  </Button>
+                  <Button asChild variant="ghost">
+                    <Link href="/dashboard/notifications">Notifications</Link>
                   </Button>
                   <Button asChild variant="ghost">
                     <Link href="/dashboard/profile">Profile</Link>

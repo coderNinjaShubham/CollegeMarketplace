@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import type { Product, ProductWithCategory, Category, Profile, Order, Favorite } from '@/lib/types';
+import type { Product, ProductWithCategory, Category, Profile, Order, Favorite, Notification } from '@/lib/types';
 
 // ─── Public queries (no auth needed) ──────────────────────────────────────────
 
@@ -205,3 +205,42 @@ export async function getMyFavoriteStatus(productId: string): Promise<string | n
     .maybeSingle();
   return data?.id ?? null;
 }
+
+/**
+ * Get the current user's notifications.
+ * RLS: notifications.user_id = auth.uid() enforced at DB level.
+ */
+export async function getMyNotifications(limit = 30): Promise<Notification[]> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error || !data) return [];
+  return data as Notification[];
+}
+
+/**
+ * Get count of unread notifications for current user.
+ */
+export async function getUnreadNotificationCount(): Promise<number> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 0;
+
+  const { count, error } = await supabase
+    .from('notifications')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('is_read', false);
+
+  if (error || count === null) return 0;
+  return count;
+}
+

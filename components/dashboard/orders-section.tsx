@@ -13,6 +13,7 @@ import {
   MapPin,
   MessageSquare,
   UserRound,
+  AlertCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -27,15 +28,46 @@ interface OrdersSectionProps {
   sellerOrders: Order[];
 }
 
-const ORDER_STATUS_CONFIG: Record<
+// ─── Status config ─────────────────────────────────────────────────────────────
+const STATUS_CONFIG: Record<
   OrderStatus,
-  { label: string; badge: 'default' | 'success' | 'warning' | 'destructive' | 'secondary'; icon: React.ElementType }
+  {
+    label: string;
+    badge: 'default' | 'success' | 'warning' | 'destructive' | 'secondary';
+    icon: React.ElementType;
+    description: string;
+  }
 > = {
-  pending: { label: 'Pending', badge: 'warning', icon: Clock },
-  accepted: { label: 'Accepted', badge: 'success', icon: CheckCircle2 },
-  rejected: { label: 'Rejected', badge: 'destructive', icon: XCircle },
-  completed: { label: 'Completed', badge: 'secondary', icon: CheckCircle2 },
-  cancelled: { label: 'Cancelled', badge: 'secondary', icon: Ban },
+  pending: {
+    label: 'Pending',
+    badge: 'warning',
+    icon: Clock,
+    description: 'Waiting for seller response',
+  },
+  accepted: {
+    label: 'Accepted',
+    badge: 'success',
+    icon: CheckCircle2,
+    description: 'Seller accepted — arrange pickup',
+  },
+  rejected: {
+    label: 'Declined',
+    badge: 'destructive',
+    icon: XCircle,
+    description: 'Seller declined this request',
+  },
+  completed: {
+    label: 'Completed',
+    badge: 'secondary',
+    icon: CheckCircle2,
+    description: 'Exchange completed',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    badge: 'secondary',
+    icon: Ban,
+    description: 'Reservation was cancelled',
+  },
 };
 
 export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps) {
@@ -45,36 +77,133 @@ export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps)
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  async function updateOrderStatus(orderId: string, status: OrderStatus, role: 'buyer' | 'seller') {
+  async function transition(orderId: string, newStatus: OrderStatus) {
     setActionId(orderId);
     setError('');
     const supabase = createClient();
 
-    // Verify auth
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setError('Not authenticated.'); setActionId(null); return; }
+    // All validation, ownership checks, product-status sync, and notifications
+    // are handled server-side by the SECURITY DEFINER function.
+    const { error: rpcError } = await supabase.rpc('process_order_transition', {
+      p_order_id: orderId,
+      p_new_status: newStatus,
+    });
 
-    // Build query — RLS on orders restricts to buyer_id or seller_id = auth.uid()
-    const col = role === 'buyer' ? 'buyer_id' : 'seller_id';
-    const { error: updateError } = await supabase
-      .from('orders')
-      .update({ status })
-      .eq('id', orderId)
-      .eq(col, user.id); // extra ownership check in query
+    if (rpcError) {
+      if (rpcError.code === 'PGRST202') {
+        // Fallback: direct table mutation if migration 010 function not yet created in Supabase
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setError('Not authenticated.');
+          setActionId(null);
+          return;
+        }
 
-    if (updateError) {
-      setError(`Could not update order: ${updateError.message}`);
+        // Fetch order to verify participation and product
+        const { data: orderData, error: orderFetchError } = await supabase
+          .from('orders')
+          .select('*, products(id, status)')
+          .eq('id', orderId)
+          .maybeSingle();
+
+        if (orderFetchError || !orderData) {
+          setError('Order not found.');
+          setActionId(null);
+          return;
+        }
+
+        const isBuyer = user.id === orderData.buyer_id;
+        const isSeller = user.id === orderData.seller_id;
+
+        if (!isBuyer && !isSeller) {
+          setError('Not authorized: you are not a participant in this order.');
+          setActionId(null);
+          return;
+        }
+
+        // Validate state transitions
+        if (orderData.status === 'pending') {
+          if ((newStatus === 'accepted' || newStatus === 'rejected') && !isSeller) {
+            setError('Only the seller can accept or reject a pending reservation.');
+            setActionId(null);
+            return;
+          }
+          if (newStatus === 'cancelled' && !isBuyer) {
+            setError('Only the buyer can cancel their own reservation.');
+            setActionId(null);
+            return;
+          }
+        } else if (orderData.status === 'accepted') {
+          if (newStatus === 'cancelled' && !isBuyer) {
+            setError('Only the buyer can cancel an accepted reservation.');
+            setActionId(null);
+            return;
+          }
+        } else {
+          setError(`Order in status "${orderData.status}" cannot be modified.`);
+          setActionId(null);
+          return;
+        }
+
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({
+            status: newStatus,
+            completed_at: newStatus === 'completed' ? new Date().toISOString() : null,
+          })
+          .eq('id', orderId);
+
+        if (updateError) {
+          setError(`Could not update order: ${updateError.message}`);
+        } else {
+          // Sync product status
+          if (newStatus === 'accepted') {
+            await supabase
+              .from('products')
+              .update({ status: 'reserved' })
+              .eq('id', orderData.product_id)
+              .eq('status', 'active');
+          } else if (newStatus === 'cancelled' || newStatus === 'rejected') {
+            await supabase
+              .from('products')
+              .update({ status: 'active' })
+              .eq('id', orderData.product_id)
+              .eq('status', 'reserved');
+          } else if (newStatus === 'completed') {
+            await supabase
+              .from('products')
+              .update({ status: 'sold' })
+              .eq('id', orderData.product_id);
+          }
+          startTransition(() => router.refresh());
+        }
+      } else {
+        const msg = rpcError.message ?? '';
+        if (msg.includes('Not authorized') || msg.includes('Only the')) {
+          setError(`Not allowed: ${msg}`);
+        } else if (msg.includes('cannot be transitioned')) {
+          setError('This order has already reached a final state.');
+        } else {
+          setError(`Action failed: ${msg}`);
+        }
+      }
     } else {
       startTransition(() => router.refresh());
     }
     setActionId(null);
   }
 
+  const pendingSellerCount = sellerOrders.filter((o) => o.status === 'pending').length;
+
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-bold">Orders</h2>
-        <p className="text-sm text-muted-foreground">Track your reservations and incoming inquiries</p>
+        <h2 className="text-lg font-bold">Orders & Reservations</h2>
+        <p className="text-sm text-muted-foreground">
+          Track your reservations and manage incoming inquiries
+        </p>
       </div>
 
       {/* Tab selector */}
@@ -82,32 +211,51 @@ export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps)
         <button
           onClick={() => setTab('buyer')}
           className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'buyer' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+            tab === 'buyer'
+              ? 'bg-card shadow-sm text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          My Purchases
-          <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">{buyerOrders.length}</span>
+          My Reservations
+          <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">
+            {buyerOrders.length}
+          </span>
         </button>
         <button
           onClick={() => setTab('seller')}
           className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'seller' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+            tab === 'seller'
+              ? 'bg-card shadow-sm text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           Incoming Requests
-          <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">{sellerOrders.length}</span>
+          {pendingSellerCount > 0 && (
+            <span className="ml-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-xs text-white">
+              {pendingSellerCount}
+            </span>
+          )}
+          {pendingSellerCount === 0 && (
+            <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">
+              {sellerOrders.length}
+            </span>
+          )}
         </button>
       </div>
 
       {error && (
-        <p className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>
+        <div className="mb-4 flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
       )}
 
       {tab === 'buyer' && (
         <BuyerOrdersList
           orders={buyerOrders}
           actionId={actionId}
-          onCancel={(id) => updateOrderStatus(id, 'cancelled', 'buyer')}
+          onCancel={(id) => transition(id, 'cancelled')}
+          onComplete={(id) => transition(id, 'completed')}
         />
       )}
 
@@ -115,32 +263,34 @@ export function OrdersSection({ buyerOrders, sellerOrders }: OrdersSectionProps)
         <SellerOrdersList
           orders={sellerOrders}
           actionId={actionId}
-          onAccept={(id) => updateOrderStatus(id, 'accepted', 'seller')}
-          onReject={(id) => updateOrderStatus(id, 'rejected', 'seller')}
-          onComplete={(id) => updateOrderStatus(id, 'completed', 'seller')}
+          onAccept={(id) => transition(id, 'accepted')}
+          onReject={(id) => transition(id, 'rejected')}
+          onComplete={(id) => transition(id, 'completed')}
         />
       )}
     </div>
   );
 }
 
-// ─── Buyer's view ─────────────────────────────────────────────────────────────
+// ─── Buyer's view ──────────────────────────────────────────────────────────────
 
 function BuyerOrdersList({
   orders,
   actionId,
   onCancel,
+  onComplete,
 }: {
   orders: Order[];
   actionId: string | null;
   onCancel: (id: string) => void;
+  onComplete: (id: string) => void;
 }) {
   if (orders.length === 0) {
     return (
       <EmptyState
         icon={ShoppingBag}
-        title="No purchases yet"
-        description="When you reserve an item, it will appear here."
+        title="No reservations yet"
+        description="When you request an item, it will appear here for you to track."
         action={{ label: 'Browse marketplace', href: '/browse' }}
       />
     );
@@ -149,7 +299,7 @@ function BuyerOrdersList({
   return (
     <div className="space-y-3">
       {orders.map((order) => {
-        const cfg = ORDER_STATUS_CONFIG[order.status];
+        const cfg = STATUS_CONFIG[order.status];
         const StatusIcon = cfg.icon;
         const product = order.products as any;
         const seller = order.seller_profile as any;
@@ -158,7 +308,6 @@ function BuyerOrdersList({
         return (
           <div key={order.id} className="rounded-lg border border-border bg-card p-4">
             <div className="flex gap-4">
-              {/* Product thumbnail */}
               {product && (
                 <Link
                   href={`/product/${product.id}`}
@@ -177,6 +326,8 @@ function BuyerOrdersList({
                   <span className="text-xs text-muted-foreground">{timeAgo(order.created_at)}</span>
                 </div>
 
+                <p className="text-xs text-muted-foreground mb-1">{cfg.description}</p>
+
                 {product && (
                   <Link
                     href={`/product/${product.id}`}
@@ -189,7 +340,7 @@ function BuyerOrdersList({
                   {product ? formatPrice(product.price) : '—'}
                 </p>
 
-                {/* Seller info — public fields only */}
+                {/* Seller info — public only */}
                 {seller && (
                   <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                     <UserRound className="h-3 w-3" />
@@ -203,11 +354,10 @@ function BuyerOrdersList({
                   </div>
                 )}
 
-                {/* Meeting details */}
                 {order.meeting_location && (
                   <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                     <MapPin className="h-3 w-3" />
-                    <span>Meet at: {order.meeting_location}</span>
+                    Meet at: {order.meeting_location}
                   </div>
                 )}
                 {order.message && (
@@ -217,18 +367,30 @@ function BuyerOrdersList({
                   </div>
                 )}
 
-                {/* Actions */}
-                {order.status === 'pending' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={isLoading}
-                    onClick={() => onCancel(order.id)}
-                    className="mt-2 text-destructive border-destructive/30 hover:bg-destructive/10"
-                  >
-                    <Ban className="h-3 w-3" /> Cancel request
-                  </Button>
-                )}
+                {/* Buyer actions */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(order.status === 'pending' || order.status === 'accepted') && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isLoading}
+                      onClick={() => onCancel(order.id)}
+                      className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                    >
+                      <Ban className="h-3 w-3" /> Cancel
+                    </Button>
+                  )}
+                  {order.status === 'accepted' && (
+                    <Button
+                      size="sm"
+                      disabled={isLoading}
+                      onClick={() => onComplete(order.id)}
+                      className="bg-success hover:bg-success/90 text-white"
+                    >
+                      <CheckCircle2 className="h-3 w-3" /> Confirm Completion
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -258,7 +420,7 @@ function SellerOrdersList({
       <EmptyState
         icon={Package}
         title="No incoming requests"
-        description="When a student wants to buy your item, you'll see their request here."
+        description="When a student wants to buy your item, their request will appear here."
       />
     );
   }
@@ -266,7 +428,7 @@ function SellerOrdersList({
   return (
     <div className="space-y-3">
       {orders.map((order) => {
-        const cfg = ORDER_STATUS_CONFIG[order.status];
+        const cfg = STATUS_CONFIG[order.status];
         const StatusIcon = cfg.icon;
         const product = order.products as any;
         const buyer = order.buyer_profile as any;
@@ -305,7 +467,7 @@ function SellerOrdersList({
                   {product ? formatPrice(product.price) : '—'}
                 </p>
 
-                {/* Buyer info — public fields only, no email */}
+                {/* Buyer info — public fields only, never email */}
                 {buyer && (
                   <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                     <div className="flex items-center gap-2">
@@ -324,49 +486,51 @@ function SellerOrdersList({
 
                 {order.message && (
                   <div className="mt-2 rounded-md bg-muted/60 p-2 text-xs">
-                    <p className="mb-0.5 text-muted-foreground font-medium">Message:</p>
+                    <p className="mb-0.5 font-medium text-muted-foreground">Message:</p>
                     <p>{order.message}</p>
                   </div>
                 )}
                 {order.meeting_location && (
                   <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                     <MapPin className="h-3 w-3" />
-                    <span>Suggested meet: {order.meeting_location}</span>
+                    Suggested meet: {order.meeting_location}
                   </div>
                 )}
 
-                {/* Actions — seller controls */}
-                {order.status === 'pending' && (
-                  <div className="mt-3 flex gap-2">
+                {/* Seller actions */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {order.status === 'pending' && (
+                    <>
+                      <Button
+                        size="sm"
+                        disabled={isLoading}
+                        onClick={() => onAccept(order.id)}
+                        className="bg-success hover:bg-success/90 text-white"
+                      >
+                        <CheckCircle2 className="h-3 w-3" /> Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isLoading}
+                        onClick={() => onReject(order.id)}
+                        className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                      >
+                        <XCircle className="h-3 w-3" /> Decline
+                      </Button>
+                    </>
+                  )}
+                  {order.status === 'accepted' && (
                     <Button
                       size="sm"
                       disabled={isLoading}
-                      onClick={() => onAccept(order.id)}
+                      onClick={() => onComplete(order.id)}
                       className="bg-success hover:bg-success/90 text-white"
                     >
-                      <CheckCircle2 className="h-3 w-3" /> Accept
+                      <CheckCircle2 className="h-3 w-3" /> Mark Completed
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isLoading}
-                      onClick={() => onReject(order.id)}
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                    >
-                      <XCircle className="h-3 w-3" /> Reject
-                    </Button>
-                  </div>
-                )}
-                {order.status === 'accepted' && (
-                  <Button
-                    size="sm"
-                    disabled={isLoading}
-                    onClick={() => onComplete(order.id)}
-                    className="mt-3 bg-success hover:bg-success/90 text-white"
-                  >
-                    <CheckCircle2 className="h-3 w-3" /> Mark as Completed
-                  </Button>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>

@@ -108,3 +108,16 @@ export interface Order {
     hostel_block: string | null;
   } | null;
 }
+
+export type NotificationType = 'order' | 'review' | 'report' | 'system';
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
+}
