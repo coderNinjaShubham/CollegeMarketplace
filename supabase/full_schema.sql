@@ -1121,3 +1121,7 @@ GRANT UPDATE (category_id, title, description, price, condition, status, image_u
 REVOKE EXECUTE ON FUNCTION public.set_product_seller_snapshot() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.set_product_seller_snapshot() FROM anon;
 REVOKE EXECUTE ON FUNCTION public.set_product_seller_snapshot() FROM authenticated;
+
+-- --- Fix anon access to is_admin() -----------------------------------------
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon;
+
