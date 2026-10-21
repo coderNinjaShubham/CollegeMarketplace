@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { MapPin } from 'lucide-react';
 import { formatPrice, timeAgo, cn } from '@/lib/utils';
 import { getConditionLabel } from '@/lib/constants';
+import { isSameHostel } from '@/lib/location';
 import type { ProductWithCategory } from '@/lib/types';
 import { ProductImage } from '@/components/product-image';
 import { FavoriteButton } from '@/components/favorite-button';
@@ -19,6 +21,8 @@ interface ProductCardProps {
   favoriteId?: string | null;
   /** Set to true when showing user's own listings — hides the favorite button */
   isOwnListing?: boolean;
+  /** Pass the viewing user's hostel to highlight same-hostel listings */
+  viewerHostel?: string | null;
 }
 
 export function ProductCard({
@@ -26,9 +30,11 @@ export function ProductCard({
   isFavorited = false,
   favoriteId,
   isOwnListing = false,
+  viewerHostel,
 }: ProductCardProps) {
   const badge = statusBadge[product.status] ?? statusBadge.active;
   const categoryName = product.categories?.name ?? null;
+  const isLocalHostel = Boolean(viewerHostel && isSameHostel(product.seller_hostel_block, viewerHostel));
 
   return (
     <Link
@@ -45,6 +51,14 @@ export function ProductCard({
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
             <span className={cn('rounded-full px-3 py-1 text-xs font-medium', badge.className)}>
               {badge.label}
+            </span>
+          </div>
+        )}
+        {/* Same-hostel highlight badge */}
+        {isLocalHostel && (
+          <div className="absolute top-2 left-2 z-10">
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">
+              🏠 In Your Hostel
             </span>
           </div>
         )}
@@ -65,8 +79,17 @@ export function ProductCard({
           <span className="text-base font-semibold text-primary">{formatPrice(product.price)}</span>
           <span className="text-xs text-muted-foreground">{getConditionLabel(product.condition)}</span>
         </div>
-        {categoryName && <p className="text-xs text-muted-foreground">{categoryName}</p>}
-        <p className="text-xs text-muted-foreground">{timeAgo(product.created_at)}</p>
+        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+          {product.seller_hostel_block ? (
+            <span className={cn('flex items-center gap-1', isLocalHostel && 'font-medium text-emerald-600 dark:text-emerald-400')}>
+              <MapPin className="h-3 w-3 shrink-0" />
+              {product.seller_hostel_block}
+            </span>
+          ) : (
+            <span>{categoryName || 'NITW'}</span>
+          )}
+          <span>{timeAgo(product.created_at)}</span>
+        </div>
       </div>
     </Link>
   );

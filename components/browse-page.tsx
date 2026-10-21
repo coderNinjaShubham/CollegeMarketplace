@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Package } from 'lucide-react';
+import { Package, MapPin } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { SearchBar } from '@/components/search-bar';
 import { CategoryNav } from '@/components/category-nav';
 import { EmptyState } from '@/components/empty-state';
 import { ProductCard } from '@/components/product-card';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
-import { CONDITIONS, CATEGORIES } from '@/lib/constants';
+import { Badge } from '@/components/ui/badge';
+import { CONDITIONS, CATEGORIES, HOSTEL_BLOCKS } from '@/lib/constants';
+import { separateProductsByHostel } from '@/lib/location';
 import type { ProductWithCategory } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -21,11 +23,32 @@ export function BrowsePage() {
   const query = searchParams.get('q') || '';
 
   const [products, setProducts] = useState<ProductWithCategory[]>([]);
+  const [userHostel, setUserHostel] = useState<string | null>(null);
+  const [hostelFilter, setHostelFilter] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [conditionFilter, setConditionFilter] = useState<ConditionFilter>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+
+  // Load authenticated user profile hostel once
+  useEffect(() => {
+    async function checkUserHostel() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('hostel_block')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (profile?.hostel_block) {
+          setUserHostel(profile.hostel_block);
+        }
+      }
+    }
+    checkUserHostel();
+  }, []);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -50,6 +73,9 @@ export function BrowsePage() {
       if (conditionFilter) {
         dbQuery = dbQuery.eq('condition', conditionFilter);
       }
+      if (hostelFilter) {
+        dbQuery = dbQuery.eq('seller_hostel_block', hostelFilter);
+      }
 
       if (sortBy === 'price_low') {
         dbQuery = dbQuery.order('price', { ascending: true });
@@ -69,17 +95,18 @@ export function BrowsePage() {
     } finally {
       setLoading(false);
     }
-  }, [query, categoryFilter, conditionFilter, sortBy]);
+  }, [query, categoryFilter, conditionFilter, hostelFilter, sortBy]);
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
-  const hasFilters = query || categoryFilter || conditionFilter;
+  const hasFilters = query || categoryFilter || conditionFilter || hostelFilter;
 
   function clearFilters() {
     setCategoryFilter('');
     setConditionFilter('');
+    setHostelFilter('');
     setSortBy('newest');
   }
 
@@ -126,6 +153,34 @@ export function BrowsePage() {
           <option value="price_high">Price: High to Low</option>
         </select>
 
+        <select
+          value={hostelFilter}
+          onChange={(e) => setHostelFilter(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="">All hostels</option>
+          {HOSTEL_BLOCKS.map((h) => (
+            <option key={h} value={h}>
+              {h} {userHostel === h ? '(My Hostel)' : ''}
+            </option>
+          ))}
+        </select>
+
+        {userHostel && (
+          <button
+            type="button"
+            onClick={() => setHostelFilter(hostelFilter === userHostel ? '' : userHostel)}
+            className={cn(
+              'h-9 rounded-md px-3 text-sm font-medium border transition-colors inline-flex items-center gap-1.5',
+              hostelFilter === userHostel
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
+            )}
+          >
+            🏠 In My Hostel ({userHostel})
+          </button>
+        )}
+
         {hasFilters && (
           <button
             onClick={clearFilters}
@@ -160,10 +215,61 @@ export function BrowsePage() {
             href: '/sell',
           }}
         />
+      ) : !hostelFilter && userHostel && separateProductsByHostel(products, userHostel).sameHostel.length > 0 ? (
+        (() => {
+          const { sameHostel, otherHostels } = separateProductsByHostel(products, userHostel);
+          return (
+            <div className="space-y-10">
+              {/* Same-hostel section */}
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 sm:p-6">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/20 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-sm text-white">
+                      🏠
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-foreground">
+                          In Your Hostel ({userHostel})
+                        </h3>
+                        <Badge className="bg-emerald-600/15 text-emerald-700 hover:bg-emerald-600/20 dark:text-emerald-400 border-none text-[11px]">
+                          Zero walk distance
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {sameHostel.length} {sameHostel.length === 1 ? 'item' : 'items'} available right in your hostel block
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                  {sameHostel.map((product) => (
+                    <ProductCard key={product.id} product={product} viewerHostel={userHostel} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Other hostels section */}
+              {otherHostels.length > 0 && (
+                <div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-base font-bold text-foreground">Other Hostels Across Campus</h3>
+                    <span className="text-xs text-muted-foreground">{otherHostels.length} listings</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                    {otherHostels.map((product) => (
+                      <ProductCard key={product.id} product={product} viewerHostel={userHostel} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {products.map((product) => (
-            <ProductCard key={product.id} product={product} />
+            <ProductCard key={product.id} product={product} viewerHostel={userHostel} />
           ))}
         </div>
       )}

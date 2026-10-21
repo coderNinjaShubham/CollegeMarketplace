@@ -17,6 +17,7 @@ import { SellerReviews } from '@/components/seller-reviews';
 import { StarRating } from '@/components/star-rating';
 import { formatPrice, timeAgo } from '@/lib/utils';
 import { getConditionLabel } from '@/lib/constants';
+import { isSameHostel, getSuggestedHandoverSpot } from '@/lib/location';
 import type { ProductImage as ProductImageRow, ProductWithCategory, Review } from '@/lib/types';
 
 interface ProductDetailPageProps {
@@ -37,6 +38,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userHostel, setUserHostel] = useState<string | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
   const [favoriteId, setFavoriteId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -98,6 +100,15 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       if (user) {
         setIsLoggedIn(true);
         setIsOwner(user.id === productData.seller_id);
+
+        const { data: profData } = await supabase
+          .from('profiles')
+          .select('hostel_block')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (profData?.hostel_block) {
+          setUserHostel(profData.hostel_block);
+        }
 
         // Check favorite status — RLS scoped to auth.uid()
         const { data: favData } = await supabase
@@ -223,6 +234,43 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                 </p>
               )}
             </div>
+
+            {/* Same-hostel advantage or Handover planning card */}
+            {product.seller_hostel_block && (
+              <div className="mt-3 pt-3 border-t border-border">
+                {userHostel && isSameHostel(userHostel, product.seller_hostel_block) ? (
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                      <span>🏠</span> Same Hostel Advantage ({userHostel})
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                      Both you and the seller live in {userHostel}. Zero walking distance — convenient handover right inside your hostel block!
+                    </p>
+                  </div>
+                ) : (() => {
+                  const handover = getSuggestedHandoverSpot(userHostel, product.seller_hostel_block);
+                  return (
+                    <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs">
+                      <div className="flex items-center justify-between font-semibold text-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 text-primary" />
+                          Handover Location
+                        </span>
+                        {userHostel && (
+                          <span className="text-[11px] font-normal text-muted-foreground">
+                            ~{handover.approxDistanceMeters}m walk
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 font-medium text-foreground">{handover.name}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
+                        {handover.description}
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             <div className="mt-3 flex items-center gap-1.5 pt-2.5 border-t border-border">
               <StarRating value={ratingSummary.averageRating} readOnly size="sm" />
