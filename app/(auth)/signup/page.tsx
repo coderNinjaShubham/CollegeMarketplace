@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Mail, Lock, User as UserIcon, CircleAlert as AlertCircle, GraduationCap, Building, Hash } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, CircleAlert as AlertCircle, GraduationCap, Building, Hash, CheckCircle2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,7 @@ export default function SignupPage() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -79,27 +80,62 @@ export default function SignupPage() {
     });
 
     if (signUpError) {
-      setError(signUpError.message);
+      if (signUpError.message.toLowerCase().includes('rate limit')) {
+        setError('Email rate limit exceeded by Supabase. Please disable "Confirm email" in your Supabase Auth settings to enable unlimited instant signups.');
+      } else {
+        setError(signUpError.message);
+      }
       setLoading(false);
       return;
     }
 
     if (data.user) {
-      // Profile row will be created via database trigger in Phase 2.
-      // For now, attempt to insert directly (will work once profiles table exists).
-      await supabase.from('profiles').upsert({
-        id: data.user.id,
-        name: form.name,
-        email: form.email,
-        roll_number: form.rollNumber || null,
-        branch: form.branch,
-        year: form.year,
-        hostel_block: form.hostelBlock || null,
-      });
+      try {
+        await supabase.from('profiles').upsert({
+          id: data.user.id,
+          name: form.name,
+          email: form.email,
+          roll_number: form.rollNumber || null,
+          branch: form.branch,
+          year: form.year,
+          hostel_block: form.hostelBlock || null,
+        });
+      } catch {
+        // Handled by on_auth_user_created database trigger
+      }
+    }
+
+    // If Supabase has email confirmation enabled, session will be null
+    if (data.user && !data.session) {
+      setEmailSent(true);
+      setLoading(false);
+      return;
     }
 
     router.push('/');
     router.refresh();
+  }
+
+  if (emailSent) {
+    return (
+      <div className="space-y-4 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success/10 text-success">
+          <CheckCircle2 className="h-6 w-6" />
+        </div>
+        <h1 className="text-xl font-bold">Check your email</h1>
+        <p className="text-sm text-muted-foreground">
+          We sent a verification link to <span className="font-semibold text-foreground">{form.email}</span>. Please click the link to confirm your account and log in.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Tip: To skip email verification, turn off &quot;Confirm email&quot; in your Supabase Authentication settings.
+        </p>
+        <div className="pt-2">
+          <Button asChild className="w-full">
+            <Link href="/login">Go to Login</Link>
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

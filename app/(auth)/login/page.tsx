@@ -38,7 +38,11 @@ export default function LoginPage() {
     });
 
     if (signInError) {
-      setError(signInError.message);
+      if (signInError.message.toLowerCase().includes('email not confirmed')) {
+        setError('Your email has not been confirmed yet. Please verify it via the confirmation email sent to your inbox, or disable "Confirm email" in your Supabase Auth settings.');
+      } else {
+        setError(signInError.message);
+      }
       setLoading(false);
       return;
     }
