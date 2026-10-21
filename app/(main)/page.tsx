@@ -29,7 +29,7 @@ export default function HomePage() {
         supabase
           .from('products')
           .select('*, categories ( name, slug )')
-          .in('status', ['active', 'reserved', 'sold'])
+          .eq('status', 'active')
           .order('created_at', { ascending: false })
           .limit(16),
         supabase.auth.getUser(),

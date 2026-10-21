@@ -20,14 +20,22 @@ export function NotificationBell() {
       } = await supabase.auth.getUser();
       if (!user || !isMounted) return;
 
-      const { count } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('is_read', false);
+      const [{ count: notifCount }, { count: pendingOrdersCount }] = await Promise.all([
+        supabase
+          .from('notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_read', false),
+        supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('seller_id', user.id)
+          .eq('status', 'pending'),
+      ]);
 
-      if (isMounted && typeof count === 'number') {
-        setUnreadCount(count);
+      if (isMounted) {
+        const total = (notifCount || 0) + (pendingOrdersCount || 0);
+        setUnreadCount(total);
       }
     }
 

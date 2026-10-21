@@ -62,7 +62,7 @@ export function BrowsePage() {
       let dbQuery = supabase
         .from('products')
         .select(selectClause)
-        .in('status', ['active', 'reserved', 'sold']);
+        .eq('status', 'active');
 
       if (query) {
         dbQuery = dbQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);

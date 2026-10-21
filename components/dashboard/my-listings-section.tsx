@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Edit3, Archive, CheckCircle, Clock, XCircle, Plus } from 'lucide-react';
+import { Package, Edit3, Archive, CheckCircle, Clock, XCircle, Plus, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,6 +65,22 @@ export function MyListingsSection({ listings }: MyListingsSectionProps) {
     } else {
       startTransition(() => router.refresh());
     }
+    setActionId(null);
+  }
+
+  async function deleteListing(id: string) {
+    if (!confirm('Are you sure you want to permanently delete this listing? It will be completely removed from your dashboard and the marketplace.')) {
+      return;
+    }
+    setActionId(id);
+    setError('');
+    const supabase = createClient();
+    const { error: delError } = await supabase.from('products').delete().eq('id', id);
+    if (delError) {
+      // If foreign key constraints restrict deletion (e.g. order history), set to removed
+      await supabase.from('products').update({ status: 'removed' }).eq('id', id);
+    }
+    startTransition(() => router.refresh());
     setActionId(null);
   }
 
@@ -178,10 +194,10 @@ export function MyListingsSection({ listings }: MyListingsSectionProps) {
                           variant="outline"
                           size="sm"
                           disabled={isLoading}
-                          onClick={() => updateStatus(product.id, 'removed')}
+                          onClick={() => deleteListing(product.id)}
                           className="flex-1 text-destructive border-destructive/30 hover:bg-destructive/10"
                         >
-                          <Archive className="h-3 w-3" /> Remove
+                          <Trash2 className="h-3 w-3" /> Delete
                         </Button>
                       </>
                     )}
@@ -209,16 +225,39 @@ export function MyListingsSection({ listings }: MyListingsSectionProps) {
                       </>
                     )}
 
-                    {product.status === 'removed' && (
+                    {product.status === 'sold' && (
                       <Button
                         variant="outline"
                         size="sm"
                         disabled={isLoading}
-                        onClick={() => updateStatus(product.id, 'active')}
-                        className="flex-1"
+                        onClick={() => deleteListing(product.id)}
+                        className="flex-1 text-destructive border-destructive/30 hover:bg-destructive/10"
                       >
-                        <CheckCircle className="h-3 w-3" /> Relist
+                        <Trash2 className="h-3 w-3" /> Delete Listing
                       </Button>
+                    )}
+
+                    {product.status === 'removed' && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isLoading}
+                          onClick={() => updateStatus(product.id, 'active')}
+                          className="flex-1"
+                        >
+                          <CheckCircle className="h-3 w-3" /> Relist
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isLoading}
+                          onClick={() => deleteListing(product.id)}
+                          className="flex-1 text-destructive border-destructive/30 hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-3 w-3" /> Delete
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>

@@ -52,7 +52,7 @@ export async function getRecentProducts(limit = 8): Promise<ProductWithCategory[
   const { data, error } = await supabase
     .from('products')
     .select(`*, categories ( name, slug )`)
-    .in('status', ['active', 'reserved', 'sold'])
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error || !data) return [];
@@ -65,7 +65,7 @@ export async function getProductsByCategory(slug: string): Promise<ProductWithCa
     .from('products')
     .select(`*, categories!inner( name, slug )`)
     .eq('categories.slug', slug)
-    .in('status', ['active', 'reserved', 'sold'])
+    .eq('status', 'active')
     .order('created_at', { ascending: false });
   if (error || !data) return [];
   return data as ProductWithCategory[];
@@ -76,7 +76,7 @@ export async function searchProducts(query: string): Promise<ProductWithCategory
   const { data, error } = await supabase
     .from('products')
     .select(`*, categories ( name, slug )`)
-    .in('status', ['active', 'reserved', 'sold'])
+    .eq('status', 'active')
     .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
     .order('created_at', { ascending: false });
   if (error || !data) return [];
@@ -220,40 +220,132 @@ export async function getMyFavoriteStatus(productId: string): Promise<string | n
 
 /**
  * Get the current user's notifications.
- * RLS: notifications.user_id = auth.uid() enforced at DB level.
+ * Merges explicit notifications from notifications table with live order events
+ * (incoming pending reservations for sellers, and accepted/declined/completed alerts for buyers).
  */
 export async function getMyNotifications(limit = 30): Promise<Notification[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const [notifsRes, sellerOrdersRes, buyerOrdersRes] = await Promise.all([
+    supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(limit),
+    // Fetch orders where this user is seller (e.g. pending reservation requests)
+    supabase
+      .from('orders')
+      .select(`
+        id, status, created_at, message, meeting_location,
+        products ( id, title, price ),
+        buyer_profile:profiles!orders_buyer_id_fkey ( name )
+      `)
+      .eq('seller_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    // Fetch orders where this user is buyer (e.g. accepted/rejected/completed)
+    supabase
+      .from('orders')
+      .select(`
+        id, status, created_at, updated_at,
+        products ( id, title, price ),
+        seller_profile:profiles!orders_seller_id_fkey ( name )
+      `)
+      .eq('buyer_id', user.id)
+      .in('status', ['accepted', 'rejected', 'completed'])
+      .order('updated_at', { ascending: false })
+      .limit(20),
+  ]);
 
-  if (error || !data) return [];
-  return data as Notification[];
+  const items: Notification[] = [...((notifsRes.data as Notification[]) || [])];
+
+  // Synthesize notifications for seller orders if not already in items
+  if (sellerOrdersRes.data) {
+    for (const ord of sellerOrdersRes.data as any[]) {
+      const buyerName = ord.buyer_profile?.name || 'A student';
+      const prodTitle = ord.products?.title || 'your listing';
+      const syntheticId = `order-seller-${ord.id}`;
+
+      // Check if an explicit notification with this order exists
+      if (!items.some((n) => n.link?.includes(ord.id) || (n.title.includes('Reservation') && n.body?.includes(prodTitle)))) {
+        items.push({
+          id: syntheticId,
+          user_id: user.id,
+          type: 'order',
+          title: ord.status === 'pending' ? 'New Reservation Request!' : `Reservation ${ord.status.toUpperCase()}`,
+          body: `${buyerName} requested to reserve "${prodTitle}".`,
+          link: '/dashboard/orders',
+          is_read: ord.status !== 'pending',
+          created_at: ord.created_at,
+        });
+      }
+    }
+  }
+
+  // Synthesize notifications for buyer orders if not already in items
+  if (buyerOrdersRes.data) {
+    for (const ord of buyerOrdersRes.data as any[]) {
+      const sellerName = ord.seller_profile?.name || 'The seller';
+      const prodTitle = ord.products?.title || 'your item';
+      const syntheticId = `order-buyer-${ord.id}-${ord.status}`;
+
+      if (!items.some((n) => n.link?.includes(ord.id) || (n.title.toLowerCase().includes(ord.status) && n.body?.includes(prodTitle)))) {
+        const title = ord.status === 'accepted'
+          ? 'Reservation Accepted!'
+          : ord.status === 'completed'
+          ? 'Order Completed!'
+          : 'Reservation Declined';
+        const body = ord.status === 'accepted'
+          ? `${sellerName} accepted your reservation for "${prodTitle}". Arrange pickup now!`
+          : ord.status === 'completed'
+          ? `Your order for "${prodTitle}" is completed.`
+          : `${sellerName} declined your reservation for "${prodTitle}".`;
+
+        items.push({
+          id: syntheticId,
+          user_id: user.id,
+          type: 'order',
+          title,
+          body,
+          link: '/dashboard/orders',
+          is_read: false,
+          created_at: ord.updated_at || ord.created_at,
+        });
+      }
+    }
+  }
+
+  // Sort by created_at descending
+  items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return items.slice(0, limit);
 }
 
 /**
  * Get count of unread notifications for current user.
+ * Counts unread notifications rows + pending unhandled reservation requests for sellers.
  */
 export async function getUnreadNotificationCount(): Promise<number> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return 0;
 
-  const { count, error } = await supabase
-    .from('notifications')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .eq('is_read', false);
+  const [{ count: notifCount }, { count: pendingOrdersCount }] = await Promise.all([
+    supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('is_read', false),
+    supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('seller_id', user.id)
+      .eq('status', 'pending'),
+  ]);
 
-  if (error || count === null) return 0;
-  return count;
+  return (notifCount ?? 0) + (pendingOrdersCount ?? 0);
 }
 
 // ─── Review & Rating queries ──────────────────────────────────────────────────
