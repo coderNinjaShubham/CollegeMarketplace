@@ -1341,3 +1341,60 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.create_reservation(uuid, text, text) FROM anon;
 GRANT  EXECUTE ON FUNCTION public.create_reservation(uuid, text, text) TO authenticated;
+
+
+-- ─── Migration 011: Fix listing creation permissions and storage bucket ─────
+
+GRANT EXECUTE ON FUNCTION public.set_product_seller_snapshot() TO authenticated;
+
+GRANT INSERT (id, seller_id, category_id, title, description, price, condition, status, image_url)
+  ON products TO authenticated;
+
+GRANT UPDATE (category_id, title, description, price, condition, status, image_url)
+  ON products TO authenticated;
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'product-images',
+  'product-images',
+  true,
+  5242880,
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 5242880,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+DROP POLICY IF EXISTS "product_images_read_public" ON storage.objects;
+CREATE POLICY "product_images_read_public"
+  ON storage.objects FOR SELECT TO anon, authenticated
+  USING (bucket_id = 'product-images');
+
+DROP POLICY IF EXISTS "product_images_insert_own_folder" ON storage.objects;
+CREATE POLICY "product_images_insert_own_folder"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'product-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "product_images_update_own_folder" ON storage.objects;
+CREATE POLICY "product_images_update_own_folder"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'product-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'product-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "product_images_delete_own_folder" ON storage.objects;
+CREATE POLICY "product_images_delete_own_folder"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'product-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );

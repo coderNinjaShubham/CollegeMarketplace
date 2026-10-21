@@ -91,9 +91,10 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
       if (uploadError) throw uploadError;
 
       setImageUrl(path);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Image upload failed', err);
-      setError('Could not upload the image. Please try again.');
+      const msg = err?.message || 'Could not upload the image.';
+      setError(`Image upload error: ${msg}`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -137,7 +138,26 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
         return;
       }
 
-      const payload = {
+      // Ensure profile exists in profiles table so foreign key references succeed
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!profile) {
+        await supabase.from('profiles').insert({
+          id: user.id,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'Student',
+          email: user.email!,
+          roll_number: user.user_metadata?.roll_number || null,
+          branch: user.user_metadata?.branch || null,
+          year: user.user_metadata?.year || null,
+          hostel_block: user.user_metadata?.hostel_block || null,
+        });
+      }
+
+      const payload: Record<string, any> = {
         category_id: parseInt(form.category_id, 10),
         title: form.title.trim(),
         description: form.description.trim(),
@@ -147,21 +167,38 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
       };
 
       if (mode === 'create') {
-        const { data, error: insertError } = await supabase
+        let insertRes = await supabase
           .from('products')
           .insert(payload)
           .select('id')
           .single();
 
-        if (insertError) throw insertError;
+        // If insert failed due to column grant on seller_id, try with explicit seller_id
+        if (insertRes.error && insertRes.error.message.includes('seller_id')) {
+          insertRes = await supabase
+            .from('products')
+            .insert({ ...payload, seller_id: user.id })
+            .select('id')
+            .single();
+        }
+
+        if (insertRes.error) {
+          throw insertRes.error;
+        }
+
+        const data = insertRes.data;
+
         if (imageUrl) {
           const { error: imageError } = await supabase.from('product_images').insert({
             product_id: data.id,
             image_url: imageUrl,
             sort_order: 0,
           });
-          if (imageError) throw imageError;
+          if (imageError) {
+            console.warn('Could not save secondary image record', imageError);
+          }
         }
+
         if (onSaved) onSaved();
         else router.push(`/product/${data.id}`);
       } else if (mode === 'edit' && product) {
@@ -171,21 +208,26 @@ export function ProductForm({ mode, categories, product, onSaved }: ProductFormP
           .eq('id', product.id);
 
         if (updateError) throw updateError;
+
         if (imageUrl && imageUrl !== product.image_url) {
           const { error: imageError } = await supabase.from('product_images').insert({
             product_id: product.id,
             image_url: imageUrl,
             sort_order: 0,
           });
-          if (imageError) throw imageError;
+          if (imageError) {
+            console.warn('Could not save secondary image record', imageError);
+          }
         }
+
         if (onSaved) onSaved();
         else router.push(`/product/${product.id}`);
         router.refresh();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save listing', err);
-      setError('Could not save the listing. Please try again.');
+      const msg = err?.message || err?.error_description || (typeof err === 'string' ? err : 'Could not save the listing. Please try again.');
+      setError(`Could not save listing: ${msg}`);
       setSaving(false);
     }
   }
